@@ -2,9 +2,14 @@
 """
 小月早安服务 - 每天早上发送日语学习消息
 温柔姐姐风格，带高低音标注，融入生活吐槽
+
+运行模式：
+- python main.py 生成消息并保存到 output.txt
+- 由外部服务（如OpenClaw）读取并发送
 """
 
 import os
+import sys
 import random
 import requests
 from datetime import datetime
@@ -17,6 +22,9 @@ from config import (
     SONGS,
     DAILY_WORDS,
 )
+
+# 输出文件路径
+OUTPUT_FILE = os.path.expanduser("~/.openclaw/workspace/xiaoyue-morning-service/output.txt")
 
 # 日期词汇
 MONTH_WORDS = {
@@ -201,22 +209,19 @@ def send_telegram_message(message: str, bot_token: str = None) -> bool:
 
 
 def main():
-    """主函数"""
-    print("=" * 50)
-    print("小月早安服务启动")
-    print("=" * 50)
-
+    """主函数 - 生成消息并保存"""
     message = generate_message()
-    print("\n生成的消息:")
+    
+    # 保存到文件（供外部服务读取）
+    output_dir = os.path.dirname(OUTPUT_FILE)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+        f.write(message)
+    
+    print(f"✅ 消息已保存到: {OUTPUT_FILE}")
     print(message)
-    print("\n" + "=" * 50)
-
-    # 发送到Telegram
-    success = send_telegram_message(message)
-    if success:
-        print("✅ 早安消息已发送")
-    else:
-        print("❌ 发送失败")
 
 
 if __name__ == "__main__":
