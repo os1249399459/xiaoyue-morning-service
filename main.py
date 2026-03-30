@@ -5,6 +5,7 @@
 
 运行模式：
 - python main.py 生成消息并保存到 output.txt
+- 所有消息都会记录到 logs/ 目录
 - 由外部服务（如OpenClaw）读取并发送
 """
 
@@ -12,6 +13,7 @@ import os
 import sys
 import random
 import requests
+import json
 from datetime import datetime
 from config import (
     TELEGRAM_USER_ID,
@@ -23,8 +25,10 @@ from config import (
     DAILY_WORDS,
 )
 
-# 输出文件路径
-OUTPUT_FILE = os.path.expanduser("~/.openclaw/workspace/xiaoyue-morning-service/output.txt")
+# 文件路径
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_FILE = os.path.join(BASE_DIR, "output.txt")
+LOGS_DIR = os.path.join(BASE_DIR, "logs")
 
 # 日期词汇
 MONTH_WORDS = {
@@ -111,8 +115,8 @@ def get_life_complaint() -> str:
     return random.choice(complaints)
 
 
-def generate_message() -> str:
-    """生成早安消息"""
+def generate_message() -> dict:
+    """生成早安消息，返回消息内容和选择的元素"""
     now = datetime.now()
     month = now.month
     day = now.day
@@ -133,6 +137,8 @@ def generate_message() -> str:
     color = random.choice(COLORS)
     song = random.choice(SONGS)
     daily_word = random.choice(DAILY_WORDS)
+    news = get_news()
+    complaint = get_life_complaint()
 
     # 构建消息
     message = f"""🌙 弟弟~ おはよう|ございます (o↘hayō|goza↗imasu)
@@ -165,9 +171,9 @@ def generate_message() -> str:
 🎵 今日歌曲推荐——{song['cn']}（{song['source']}）
 {song['cn']} | {song['jp']} | {song['romaji']} ({song['pitch']})
 
-🌸 {get_news()}
+🌸 {news}
 
-💬 {get_life_complaint()}
+💬 {complaint}
 
 顺便学一个词：
 {daily_word['cn']} | {daily_word['jp']} | {daily_word['romaji']} ({daily_word['pitch']})
@@ -178,49 +184,91 @@ def generate_message() -> str:
 
 明天见咯弟弟~ 🌙"""
 
-    return message
-
-
-def send_telegram_message(message: str, bot_token: str = None) -> bool:
-    """发送Telegram消息"""
-    bot_token = bot_token or os.environ.get("TELEGRAM_BOT_TOKEN")
-    if not bot_token:
-        print("错误: 未找到Telegram Bot Token")
-        return False
-
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    data = {
-        "chat_id": TELEGRAM_USER_ID,
-        "text": message,
-        "parse_mode": "HTML",
+    # 返回消息和所有元素
+    return {
+        "message": message,
+        "weather": weather,
+        "recipe": recipe,
+        "color": color,
+        "song": song,
+        "daily_word": daily_word,
+        "news": news,
+        "complaint": complaint,
     }
 
-    try:
-        response = requests.post(url, data=data, timeout=30)
-        if response.status_code == 200:
-            print("消息发送成功！")
-            return True
-        else:
-            print(f"发送失败: {response.text}")
-            return False
-    except Exception as e:
-        print(f"发送异常: {e}")
-        return False
+
+def save_log(result: dict):
+    """保存日志记录"""
+    # 创建logs目录
+    if not os.path.exists(LOGS_DIR):
+        os.makedirs(LOGS_DIR)
+    
+    # 日志文件名：按日期
+    now = datetime.now()
+    log_filename = now.strftime("%Y-%m-%d.json")
+    log_file = os.path.join(LOGS_DIR, log_filename)
+    
+    # 日志内容
+    log_entry = {
+        "timestamp": now.isoformat(),
+        "date": {
+            "year": now.year,
+            "month": now.month,
+            "day": now.day,
+            "weekday": now.weekday(),
+            "weekday_name": DAY_WORDS.get(now.weekday(), {}).get("cn", ""),
+        },
+        "weather": result["weather"],
+        "recipe": {
+            "name": result["recipe"]["name"],
+            "name_jp": result["recipe"]["name_jp"],
+        },
+        "color": result["color"],
+        "song": result["song"],
+        "daily_word": result["daily_word"],
+        "news": result["news"],
+        "complaint": result["complaint"],
+        "message_length": len(result["message"]),
+        "user_id": TELEGRAM_USER_ID,
+    }
+    
+    # 读取已有日志（如果存在）
+    logs = []
+    if os.path.exists(log_file):
+        try:
+            with open(log_file, 'r', encoding='utf-8') as f:
+                logs = json.load(f)
+        except:
+            logs = []
+    
+    # 添加新日志
+    logs.append(log_entry)
+    
+    # 保存日志
+    with open(log_file, 'w', encoding='utf-8') as f:
+        json.dump(logs, f, ensure_ascii=False, indent=2)
+    
+    return log_file
 
 
 def main():
     """主函数 - 生成消息并保存"""
-    message = generate_message()
+    # 生成消息
+    result = generate_message()
+    message = result["message"]
     
-    # 保存到文件（供外部服务读取）
-    output_dir = os.path.dirname(OUTPUT_FILE)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    # 保存日志
+    log_file = save_log(result)
     
+    # 保存到输出文件（供发送服务使用）
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
         f.write(message)
     
+    now = datetime.now()
     print(f"✅ 消息已保存到: {OUTPUT_FILE}")
+    print(f"📝 日志已保存到: {log_file}")
+    print(f"📅 时间: {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    print("-" * 50)
     print(message)
 
 
